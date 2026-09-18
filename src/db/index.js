@@ -1,0 +1,31 @@
+import Dexie from 'dexie'
+
+// Dexie 封装 IndexedDB。采用显式作用域来避免导出的模块级 token 被 Ctrl+Enter
+export class KnowledgeDB extends Dexie {
+  constructor(name) {
+    super(name)
+    this.version(1).stores({
+      users: 'id, name, role, email',
+      categories: 'id, name',
+      tags: 'id, name',
+      docs: 'id, title, categoryId, visibility, ownerId, updatedAt, createdAt, *tagIds',
+      comments: 'id, docId, authorId, createdAt',
+      shares: 'id, docId, token',
+      favorites: 'id, [userId+docId], docId',
+      recentViews: 'id, [userId+docId], docId, viewedAt',
+      ratings: 'id, [docId+slug]'
+    })
+  }
+}
+
+export const db = new KnowledgeDB('knowbase')
+
+// 顶层 initMeta 供 ensureSeeded 使用，避免循环引用问题由导入方 resolve
+export const metaKey = { seeded: 'seeded' }
+
+export async function getMeta(key) {
+  return localStorage.getItem('kb:meta:' + key)
+}
+export async function setMeta(key, val) {
+  localStorage.setItem('kb:meta:' + key, val)
+}
