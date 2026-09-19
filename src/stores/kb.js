@@ -28,6 +28,10 @@ export const useKbStore = defineStore('kb', () => {
     docs.value = await db.docs.toArray()
   }
 
+  async function reloadComments() {
+    comments.value = await db.comments.toArray()
+  }
+
   async function getDoc(id) {
     await loadAll()
     return docs.value.find((d) => d.id === id) || null
@@ -110,6 +114,9 @@ export const useKbStore = defineStore('kb', () => {
         ...existing,
         ...fields,
         updatedAt: now,
+        // 内容变更后此前的评审结论失效：已通过/已驳回回到「未送审」，需重新发起评审
+        // （评审中 pending 时普通编辑者已被权限冻结，仅管理员修改不清空状态）
+        reviewStatus: (existing.reviewStatus === 'approved' || existing.reviewStatus === 'rejected') ? 'none' : existing.reviewStatus,
         versions: [...versions, { version: currentVersion + 1, savedAt: now, savedBy, note: versionNote }]
       }
       await db.docs.put(updated)
@@ -156,7 +163,7 @@ export const useKbStore = defineStore('kb', () => {
 
   return {
     docs, categories, tags, comments, loaded,
-    catMap, tagMap, loadAll, reloadDocs, getDoc, getDocFresh, createDoc, updateDoc, deleteDoc,
+    catMap, tagMap, loadAll, reloadDocs, reloadComments, getDoc, getDocFresh, createDoc, updateDoc, deleteDoc,
     addCategory, addTag, addComment, commentsOf
   }
 })

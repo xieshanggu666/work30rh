@@ -15,6 +15,10 @@ export class KnowledgeDB extends Dexie {
       recentViews: 'id, [userId+docId], docId, viewedAt',
       ratings: 'id, [docId+slug]'
     })
+    // v2：文档评审流程。reviews 记录发起/评论/审批留痕，doc.reviewStatus 冗余当前状态
+    this.version(2).stores({
+      reviews: 'id, docId, status, createdBy, createdAt'
+    })
   }
 }
 

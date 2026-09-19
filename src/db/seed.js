@@ -111,22 +111,94 @@ const seedRatings = [
   { id: 'rt-2', docId: 'doc-2', slug: 'helpful', authorId: 'u-ziwei', value: 1 }
 ]
 
+// 评审示例：一条待审批、一条已通过、一条已驳回，覆盖完整流转留痕
+const seedReviews = [
+  {
+    id: 'rev-1', docId: 'doc-3', docTitle: 'API 鉴权与权限模型',
+    fromVisibility: 'team', targetVisibility: 'public', baseVersion: 1,
+    status: 'pending', note: '鉴权方案已稳定运行一个季度，申请公开给全公司查阅',
+    createdBy: 'u-chen', createdAt: ago(4 * h),
+    comments: [
+      { id: 'rc-1', authorId: 'u-ziwei', content: '建议补充网关限流与重试策略的说明再公开。', mentionIds: [], createdAt: ago(3 * h) },
+      { id: 'rc-2', authorId: 'u-chen', content: '@王子薇 已补充限流章节，请再看下。', mentionIds: ['u-ziwei'], createdAt: ago(2 * h) }
+    ],
+    decidedBy: null, decidedAt: null, decisionNote: '',
+    history: [
+      { action: 'submit', actorId: 'u-chen', at: ago(4 * h), note: '鉴权方案已稳定运行一个季度，申请公开给全公司查阅' },
+      { action: 'comment', actorId: 'u-ziwei', at: ago(3 * h), note: '建议补充网关限流与重试策略的说明再公开。' },
+      { action: 'comment', actorId: 'u-chen', at: ago(2 * h), note: '@王子薇 已补充限流章节，请再看下。' }
+    ]
+  },
+  {
+    id: 'rev-2', docId: 'doc-4', docTitle: '产品需求评审 Checklist',
+    fromVisibility: 'team', targetVisibility: 'public', baseVersion: 1,
+    status: 'approved', note: 'Checklist 已覆盖主要评审场景，申请公开',
+    createdBy: 'u-ziwei', createdAt: ago(2 * d),
+    comments: [
+      { id: 'rc-3', authorId: 'u-mochen', content: '设计侧验收项已确认无误。', mentionIds: [], createdAt: ago(2 * d) }
+    ],
+    decidedBy: 'u-admin', decidedAt: ago(1 * d), decisionNote: '内容完整，同意公开',
+    history: [
+      { action: 'submit', actorId: 'u-ziwei', at: ago(2 * d), note: 'Checklist 已覆盖主要评审场景，申请公开' },
+      { action: 'comment', actorId: 'u-mochen', at: ago(2 * d), note: '设计侧验收项已确认无误。' },
+      { action: 'approve', actorId: 'u-admin', at: ago(1 * d), note: '内容完整，同意公开' }
+    ]
+  },
+  {
+    id: 'rev-3', docId: 'doc-7', docTitle: 'Vue 组件设计最佳实践',
+    fromVisibility: 'private', targetVisibility: 'team', baseVersion: 1,
+    status: 'rejected', note: '申请转为团队可见，供前端同学参考',
+    createdBy: 'u-xiaoye', createdAt: ago(3 * d),
+    comments: [],
+    decidedBy: 'u-admin', decidedAt: ago(2 * d), decisionNote: '示例代码涉及未脱敏的内部项目名，请先脱敏后再送审',
+    history: [
+      { action: 'submit', actorId: 'u-xiaoye', at: ago(3 * d), note: '申请转为团队可见，供前端同学参考' },
+      { action: 'reject', actorId: 'u-admin', at: ago(2 * d), note: '示例代码涉及未脱敏的内部项目名，请先脱敏后再送审' }
+    ]
+  }
+]
+
+// 文档评审状态与 seedReviews 对应（冗余在文档上，便于列表/搜索直接读取）
+const seedReviewStatus = { 'doc-3': 'pending', 'doc-4': 'approved', 'doc-7': 'rejected' }
+
 async function isSeeded() {
   return (await getMeta('seeded')) === '1'
 }
 
 export async function ensureSeeded() {
-  if (await isSeeded()) return
-  await db.transaction('rw', db.users, db.categories, db.tags, db.docs, db.comments, db.shares, db.favorites, db.ratings, async () => {
+  if (await isSeeded()) {
+    await migrateV2()
+    return
+  }
+  await db.transaction('rw', db.users, db.categories, db.tags, db.docs, db.comments, db.shares, db.favorites, db.ratings, db.reviews, async () => {
     if ((await db.users.count()) > 0) return
     await db.users.bulkAdd(seedUsers)
     await db.categories.bulkAdd(seedCategories)
     await db.tags.bulkAdd(seedTags)
-    await db.docs.bulkAdd(seedDocs.map((d) => ({ ...d, versions: [{ version: 1, savedAt: d.updatedAt, savedBy: d.ownerId, note: '初始版本' }] })))
+    await db.docs.bulkAdd(seedDocs.map((d) => ({
+      ...d,
+      reviewStatus: seedReviewStatus[d.id] || 'none',
+      versions: [{ version: 1, savedAt: d.updatedAt, savedBy: d.ownerId, note: '初始版本' }]
+    })))
     await db.comments.bulkAdd(seedComments)
     await db.shares.bulkAdd(seedShares)
     await db.favorites.bulkAdd(seedFavorites)
     await db.ratings.bulkAdd(seedRatings)
+    await db.reviews.bulkAdd(seedReviews)
   })
   await setMeta('seeded', '1')
+  await setMeta('seededReviews', '1')
+}
+
+// v2 迁移：为已初始化的老库补评审示例数据与文档评审状态（只执行一次）
+async function migrateV2() {
+  if ((await getMeta('seededReviews')) === '1') return
+  await db.transaction('rw', db.reviews, db.docs, async () => {
+    if ((await db.reviews.count()) === 0) await db.reviews.bulkAdd(seedReviews)
+    for (const [docId, st] of Object.entries(seedReviewStatus)) {
+      const d = await db.docs.get(docId)
+      if (d && !d.reviewStatus) await db.docs.put({ ...d, reviewStatus: st })
+    }
+  })
+  await setMeta('seededReviews', '1')
 }

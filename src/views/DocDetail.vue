@@ -4,9 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
 import { useEngagementStore } from '@/stores/engagement'
+import { useReviewStore } from '@/stores/review'
 import DocPill from '@/components/common/DocPill.vue'
 import MemberSelect from '@/components/common/MemberSelect.vue'
 import ShareDialog from '@/components/doc/ShareDialog.vue'
+import ReviewPanel from '@/components/doc/ReviewPanel.vue'
 import { formatFull, formatDate, avatarColor } from '@/utils/format'
 import { canEditDoc, canViewDoc } from '@/utils/permission'
 
@@ -15,6 +17,7 @@ const router = useRouter()
 const kb = useKbStore()
 const auth = useAuthStore()
 const engagement = useEngagementStore()
+const review = useReviewStore()
 
 const doc = ref(null)
 const notFound = ref(false)
@@ -32,6 +35,7 @@ const versionList = computed(() => (doc.value?.versions?.length ? doc.value.vers
 
 async function refresh() {
   if (!docId.value) return
+  await review.loadAll()
   const d = await kb.getDoc(docId.value)
   if (!d) { notFound.value = true; return }
   if (!canViewDoc(d, auth.user?.id)) { notAllowed.value = true; return }
@@ -70,6 +74,11 @@ function renderMention(content) {
 
 onMounted(() => { mergeNotice.value = route.query.merged || ''; refresh() })
 watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.value = false } })
+// 评审流转（发起/审批/撤销）会重载 docs，同步刷新当前文档快照以更新状态徽标与权限
+watch(() => kb.docs, () => {
+  const d = kb.docs.find((x) => x.id === docId.value)
+  if (d && doc.value) doc.value = d
+}, { deep: true })
 </script>
 
 <template>
@@ -111,6 +120,10 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
 
       <article class="render card" v-html="doc.body"></article>
 
+      <div v-if="doc.reviewStatus === 'pending' && !canEdit" class="card freeze-note">
+        🔒 本文档正在评审中，内容已冻结，仅管理员可编辑；审批通过后将按评审结论调整可见性。
+      </div>
+
       <div class="meta card">
         <div class="row"><span class="k">协作成员</span><span class="v">
           <span v-for="ed in doc.editors" :key="ed" class="collab">
@@ -119,6 +132,8 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
         </span></div>
         <div class="row"><span class="k">最近编辑</span><span class="v">{{ formatDate(doc.updatedAt) }} · {{ userById[doc.ownerId]?.name }}</span></div>
       </div>
+
+      <ReviewPanel :doc="doc" />
 
       <div class="comments card">
         <div class="c-title">评论与讨论（{{ comments.length }}）</div>
@@ -172,6 +187,7 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
 .render :deep(img) { max-width: 100%; border-radius: 6px; }
 
 .meta { margin-top: 14px; padding: 16px 24px; }
+.freeze-note { margin-top: 14px; padding: 10px 20px; font-size: 13px; color: #b45309; border-color: var(--warn); background: #fffbf3; }
 .meta .row { display: flex; gap: 16px; padding: 6px 0; }
 .meta .k { color: var(--text-3); width: 80px; }
 .collab { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
