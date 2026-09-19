@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
 import { useEngagementStore } from '@/stores/engagement'
+import { useReviewStore } from '@/stores/review'
 import { canEditContent, roleLabel } from '@/utils/permission'
 import { avatarColor } from '@/utils/format'
 
@@ -12,6 +13,7 @@ const router = useRouter()
 const kb = useKbStore()
 const auth = useAuthStore()
 const engagement = useEngagementStore()
+const reviewStore = useReviewStore()
 
 const docById = computed(() => Object.fromEntries(kb.docs.map((d) => [d.id, d])))
 
@@ -48,6 +50,9 @@ function goDoc(id) {
       <div class="link" :class="{ on: route.name === 'dashboard' }" @click="go('/', {})">🏠 首页总览</div>
       <div class="link" :class="{ on: route.name === 'qa' }" @click="go('/qa', {})">🤖 智能问答</div>
       <div class="link" :class="{ on: route.name === 'search' }" @click="go('/search', {})">🔍 全局搜索</div>
+      <div class="link" :class="{ on: route.name === 'reviewCenter' }" @click="go('/reviews', {})">
+        🧾 评审中心<span v-if="reviewStore.pendingCount" class="link-badge">{{ reviewStore.pendingCount }}</span>
+      </div>
       <div class="link" :class="{ on: route.name === 'profile' }" @click="go('/profile', {})">⚙️ 账号与权限</div>
     </nav>
 
@@ -114,6 +119,8 @@ function goDoc(id) {
 }
 .link:hover { background: var(--panel-2); }
 .link.on { background: var(--primary-weak); color: var(--primary); }
+.link { position: relative; }
+.link-badge { margin-left: 6px; background: var(--danger); color: #fff; font-size: 11px; border-radius: 999px; padding: 0 7px; min-width: 18px; height: 16px; display: inline-grid; place-items: center; }
 
 .section { margin: 4px 0 14px; }
 .section-title { font-size: 12px; color: var(--text-3); padding: 0 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }

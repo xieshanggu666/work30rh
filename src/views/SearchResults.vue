@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
+import { useReviewStore } from '@/stores/review'
 import { canViewDoc } from '@/utils/permission'
 import { tokenize, stripHtml, highlightTitle, highlightText, extractSnippet } from '@/utils/search'
 import { formatDate } from '@/utils/format'
@@ -11,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 const kb = useKbStore()
 const auth = useAuthStore()
+const reviewStore = useReviewStore()
 
 const q = ref(route.query.q || '')
 const catFilter = ref('all')
@@ -77,7 +79,10 @@ watch(() => route.query.q, run, { immediate: true })
 
     <div v-if="results.length" class="results">
       <div v-for="d in results" :key="d.id" class="result card" @click="router.push('/docs/' + d.id)">
-        <div class="r-title" v-html="highlightTitle(d.title, tokenize(q))"></div>
+        <div class="r-title-line">
+          <span class="r-title" v-html="highlightTitle(d.title, tokenize(q))"></span>
+          <span v-if="reviewStore.pendingReviewOf(d.id)" class="rv-badge">⏳ 评审中</span>
+        </div>
         <div class="r-cat">{{ kb.catMap[d.categoryId]?.name }} · 更新于 {{ formatDate(d.updatedAt) }}</div>
         <div class="r-snippet" v-html="highlightText(d.snippet, tokenize(q))"></div>
         <div class="r-tags">
@@ -104,6 +109,9 @@ watch(() => route.query.q, run, { immediate: true })
 .result { padding: 16px 20px; cursor: pointer; }
 .result:hover { border-color: var(--primary); box-shadow: var(--shadow); }
 .r-title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+.r-title-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.r-title-line .r-title { margin-bottom: 0; }
+.rv-badge { font-size: 11px; background: #fef3c7; color: #b45309; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .r-cat { color: var(--text-3); font-size: 12px; margin-bottom: 6px; }
 .r-snippet { color: var(--text-2); font-size: 13px; margin-bottom: 10px; }
 .r-tags { display: flex; gap: 6px; }

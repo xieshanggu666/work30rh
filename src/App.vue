@@ -6,16 +6,18 @@ import SideBar from '@/components/sidebar/SideBar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useKbStore } from '@/stores/kb'
 import { useEngagementStore } from '@/stores/engagement'
+import { useReviewStore } from '@/stores/review'
 
 const route = useRoute()
 const auth = useAuthStore()
 const kb = useKbStore()
 const engagement = useEngagementStore()
+const reviewStore = useReviewStore()
 
 const isSharePage = () => route.name === 'share'
 
 onMounted(async () => {
-  await Promise.all([auth.loadUsers(), kb.loadAll()])
+  await Promise.all([auth.loadUsers(), kb.loadAll(), reviewStore.loadAll()])
   // 默认以管理员登录，便于完整演示；可通过「账号与权限」切换角色
   if (!auth.user) await auth.login('admin')
   await engagement.load(auth.user?.id)

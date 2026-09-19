@@ -9,6 +9,7 @@ const routes = [
   { path: '/docs/:id', name: 'docDetail', component: () => import('@/views/DocDetail.vue'), meta: { title: '文档详情' } },
   { path: '/docs/:id/edit', name: 'docEdit', component: () => import('@/views/DocEditor.vue'), meta: { title: '编辑文档', requiresEdit: true } },
   { path: '/search', name: 'search', component: () => import('@/views/SearchResults.vue'), meta: { title: '搜索' } },
+  { path: '/reviews', name: 'reviewCenter', component: () => import('@/views/ReviewCenter.vue'), meta: { title: '评审中心' } },
   { path: '/qa', name: 'qa', component: () => import('@/views/QAAssistant.vue'), meta: { title: '智能问答' } },
   { path: '/share/:token', name: 'share', component: () => import('@/views/ShareView.vue'), meta: { title: '共享文档' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileSettings.vue'), meta: { title: '账号与权限' } },

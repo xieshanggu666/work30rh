@@ -1,5 +1,6 @@
 // 权限工具：基于角色与文档可见性
 import { isShareActive } from './share'
+import { isDocInReview } from './review'
 
 export const ROLE = { ADMIN: 'admin', EDITOR: 'editor', VIEWER: 'viewer' }
 
@@ -9,9 +10,11 @@ export function canEditContent(role) {
 }
 
 // 文档编辑者：角色可编辑 且（拥有者/协作成员/公开可编辑）
-export function canEditDoc(role, doc, userId) {
+// pendingReview 非空表示该文档有流转中的评审单：评审中锁定编辑，仅管理员可继续直接改动
+export function canEditDoc(role, doc, userId, pendingReview) {
   if (!doc) return false
   if (!canEditContent(role)) return false
+  if (isDocInReview(doc, pendingReview) && role !== ROLE.ADMIN) return false
   if (doc.ownerId === userId) return true
   if (doc.editors && doc.editors.includes(userId)) return true
   return false

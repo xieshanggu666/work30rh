@@ -4,17 +4,21 @@ import { useRoute, useRouter } from 'vue-router'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
 import { useEngagementStore } from '@/stores/engagement'
+import { useReviewStore } from '@/stores/review'
 import DocPill from '@/components/common/DocPill.vue'
 import MemberSelect from '@/components/common/MemberSelect.vue'
 import ShareDialog from '@/components/doc/ShareDialog.vue'
+import ReviewPanel from '@/components/doc/ReviewPanel.vue'
 import { formatFull, formatDate, avatarColor } from '@/utils/format'
 import { canEditDoc, canViewDoc } from '@/utils/permission'
+import { versionReviewBadge } from '@/utils/review'
 
 const route = useRoute()
 const router = useRouter()
 const kb = useKbStore()
 const auth = useAuthStore()
 const engagement = useEngagementStore()
+const reviewStore = useReviewStore()
 
 const doc = ref(null)
 const notFound = ref(false)
@@ -25,6 +29,8 @@ const showVersions = ref(false)
 const shareOpen = ref(false)
 // 保存时自动合并了其他窗口修改的提示（由编辑器跳转携带）
 const mergeNotice = ref('')
+// 已提交评审的提示（由编辑器「提交评审」跳转携带）
+const reviewSubmittedNotice = ref('')
 
 const docId = computed(() => route.params.id)
 // 兼容旧数据：早期文档可能没有 versions 字段
@@ -32,6 +38,7 @@ const versionList = computed(() => (doc.value?.versions?.length ? doc.value.vers
 
 async function refresh() {
   if (!docId.value) return
+  await reviewStore.loadAll()
   const d = await kb.getDoc(docId.value)
   if (!d) { notFound.value = true; return }
   if (!canViewDoc(d, auth.user?.id)) { notAllowed.value = true; return }
@@ -40,10 +47,13 @@ async function refresh() {
   await engagement.refresh(auth.user?.id)
 }
 
-const canEdit = computed(() => canEditDoc(auth.user?.role, doc.value, auth.user?.id))
+const canEdit = computed(() => canEditDoc(auth.user?.role, doc.value, auth.user?.id, pendingReview.value))
 const isFav = computed(() => engagement.isFavorite(docId.value))
 const comments = computed(() => (doc.value ? kb.commentsOf(doc.value.id) : []))
 const userById = computed(() => Object.fromEntries(auth.users.map((u) => [u.id, u])))
+const pendingReview = computed(() => (doc.value ? reviewStore.pendingReviewOf(doc.value.id) : null))
+// 文档锁定提示：评审中正文保持旧版，编辑入口（非管理员）不可用
+const reviewLocked = computed(() => !!pendingReview.value && auth.user?.role !== 'admin')
 
 async function doDelete() {
   if (!confirm('确定删除该文档？此操作不可恢复。')) return
@@ -68,7 +78,11 @@ function renderMention(content) {
   })
 }
 
-onMounted(() => { mergeNotice.value = route.query.merged || ''; refresh() })
+onMounted(() => {
+  mergeNotice.value = route.query.merged || ''
+  reviewSubmittedNotice.value = route.query.reviewSubmitted || ''
+  refresh()
+})
 watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.value = false } })
 </script>
 
@@ -82,6 +96,13 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
         <span>ℹ️ 保存时已自动合并其他窗口对「{{ mergeNotice }}」的修改，双方内容均已保留</span>
         <button class="btn sm ghost" @click="mergeNotice = ''">知道了</button>
       </div>
+      <div v-if="reviewSubmittedNotice" class="card review-submitted-note">
+        <span>✅ 已提交评审：文档进入「评审中」，成员可发表意见，管理员审批通过后修改才会发布。</span>
+        <button class="btn sm ghost" @click="reviewSubmittedNotice = ''">知道了</button>
+      </div>
+      <div v-if="reviewLocked" class="card review-lock">
+        <span>⏳ 该文档正在评审中（{{ userById[pendingReview.submittedBy]?.name }} 发起）：当前展示的是评审前版本，正文已锁定，审批通过后更新。</span>
+      </div>
       <div class="page-head card">
         <div class="title-row">
           <h1 class="title">{{ doc.title }}</h1>
@@ -89,6 +110,7 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
             <button class="btn" :class="{ on: isFav }" @click="engagement.toggleFavorite(auth.user.id, doc.id)">{{ isFav ? '★ 已收藏' : '☆ 收藏' }}</button>
             <button class="btn" @click="shareOpen = true">🔗 分享</button>
             <button v-if="canEdit" class="btn" @click="router.push('/docs/' + doc.id + '/edit')">✎ 编辑</button>
+            <button v-else-if="reviewLocked" class="btn" disabled title="评审中，请等待管理员审批">🔒 评审中</button>
             <button v-if="canEdit" class="btn danger" @click="doDelete">🗑 删除</button>
           </div>
         </div>
@@ -104,6 +126,7 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
         <div v-for="v in [...versionList].reverse()" :key="v.version" class="ver">
           <span class="vnum">v{{ v.version }}</span>
           <span class="vnote">{{ v.note || '编辑' }}</span>
+          <span v-if="versionReviewBadge(v)" class="vbadge" :class="'vb-' + versionReviewBadge(v).cls">{{ versionReviewBadge(v).text }}</span>
           <span class="vwho">{{ userById[v.savedBy]?.name || v.savedBy }}</span>
           <span class="vtime">{{ formatFull(v.savedAt) }}</span>
         </div>
@@ -120,13 +143,15 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
         <div class="row"><span class="k">最近编辑</span><span class="v">{{ formatDate(doc.updatedAt) }} · {{ userById[doc.ownerId]?.name }}</span></div>
       </div>
 
+      <ReviewPanel :doc="doc" />
+
       <div class="comments card">
         <div class="c-title">评论与讨论（{{ comments.length }}）</div>
         <div v-if="!comments.length" class="c-empty">暂无评论，成为第一个讨论者吧</div>
         <div v-for="c in comments" :key="c.id" class="comment">
           <span class="ava big" :style="{ background: avatarColor(c.authorId) }">{{ userById[c.authorId]?.avatar || '?' }}</span>
           <div class="c-body">
-            <div class="c-meta"><b>{{ userById[c.authorId]?.name || c.authorId }}</b><span class="c-time">{{ formatDate(c.createdAt) }}</span></div>
+            <div class="c-meta"><b>{{ userById[c.authorId]?.name || c.authorId }}</b><span class="c-time">{{ formatDate(c.createdAt) }}</span><span v-if="c.reviewId" class="c-review-tag">评审意见</span></div>
             <div class="c-content" v-html="renderMention(c.content)"></div>
             <div v-if="c.mentionIds.length" class="c-mention">提及：<span v-for="m in c.mentionIds" :key="m" class="pill">{{ userById[m]?.name }}</span></div>
           </div>
@@ -189,4 +214,11 @@ watch(docId, () => { if (route.name === 'docDetail') { refresh(); showVersions.v
 .c-input { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
 .c-input > div { flex: 1; }
 .versions a.at, .c-content :deep(a.at) { color: var(--primary); font-weight: 500; }
+.review-lock { padding: 10px 18px; margin-bottom: 14px; font-size: 13px; color: #b45309; background: #fffbeb; border-color: #f59e0b; }
+.review-submitted-note { padding: 10px 20px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: #15803d; background: #f0fdf4; border-color: #16a34a; }
+.vbadge { font-size: 11px; padding: 1px 8px; border-radius: 999px; }
+.vb-ok { background: #dcfce7; color: #15803d; }
+.vb-no { background: #fee2e2; color: #b91c1c; }
+.vb-wait { background: #fef3c7; color: #b45309; }
+.c-review-tag { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--primary-weak); color: var(--primary); }
 </style>

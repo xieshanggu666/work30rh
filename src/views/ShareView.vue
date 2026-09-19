@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { db } from '@/db'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
+import { useReviewStore } from '@/stores/review'
 import DocPill from '@/components/common/DocPill.vue'
 import RichEditor from '@/components/doc/RichEditor.vue'
 import { formatFull } from '@/utils/format'
@@ -13,6 +14,7 @@ import { docVersion } from '@/utils/version'
 const route = useRoute()
 const kb = useKbStore()
 const auth = useAuthStore()
+const reviewStore = useReviewStore()
 
 const share = ref(null)
 const doc = ref(null)
@@ -32,8 +34,9 @@ const savedToast = ref('')
 const token = computed(() => route.params.token)
 const backupKey = computed(() => 'kb:share-backup:' + (doc.value?.id || ''))
 const userById = computed(() => Object.fromEntries(auth.users.map((u) => [u.id, u])))
-// 编辑入口与链接状态绑定：撤销/过期后立即失去编辑权限
-const editable = computed(() => canShareEdit(share.value))
+// 编辑入口与链接状态绑定：撤销/过期后立即失去编辑权限；评审中同样锁定
+const editable = computed(() => canShareEdit(share.value) && !reviewStore.pendingReviewOf(doc.value?.id))
+const reviewLockedShare = computed(() => !!reviewStore.pendingReviewOf(doc.value?.id))
 
 async function resolve(tokenVal) {
   status.value = 'loading'
@@ -41,6 +44,7 @@ async function resolve(tokenVal) {
   doc.value = null
   editing.value = false
   conflict.value = null
+  await reviewStore.loadAll()
   const s = await db.shares.where('token').equals(tokenVal).first()
   if (!s) { status.value = 'notfound'; return }
   const st = shareStatus(s)
@@ -89,6 +93,14 @@ async function saveEdit(force = false) {
   try {
     const res = await kb.updateDoc(doc.value.id, { body: editBody.value }, auth.user, '通过共享链接编辑', { baseVersion: baseVersion.value, base: baseDoc.value, force })
     if (!res || res.status === 'missing') { status.value = 'notfound'; return }
+    if (res.status === 'review-locked') {
+      conflict.value = null
+      editing.value = false
+      savedToast.value = '文档正在评审中，暂无法通过共享链接保存'
+      setTimeout(() => { savedToast.value = '' }, 3000)
+      await resolve(token.value)
+      return
+    }
     if (res.status === 'conflict') {
       // 保留未提交内容：正文留在编辑器中，同时写入本地备份
       conflict.value = res
@@ -134,6 +146,10 @@ watch(token, () => resolve(token.value))
       <div class="share-banner card">
         <span>🔗 您正在通过共享链接查看「{{ share.permission === 'edit' ? '可编辑' : '只读' }}」副本</span>
         <span class="owner">由 {{ userById[share.createdBy]?.name || share.createdBy }} 分享</span>
+      </div>
+
+      <div v-if="reviewLockedShare" class="card review-lock-banner">
+        ⏳ 该文档正在评审中，正文暂不可通过共享链接修改；审批通过后将发布新版本。
       </div>
 
       <div class="page-head card">
@@ -191,6 +207,7 @@ watch(token, () => resolve(token.value))
 .share { padding: 20px 0; }
 .share-banner { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; background: var(--primary-weak); border-color: var(--primary); color: var(--primary); font-weight: 500; }
 .owner { font-weight: 400; font-size: 12px; opacity: 0.8; }
+.review-lock-banner { padding: 10px 16px; margin-bottom: 14px; font-size: 13px; color: #b45309; background: #fffbeb; border-color: #f59e0b; }
 .page-head { padding: 20px 24px; margin-bottom: 14px; }
 .title-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .title { margin: 0 0 10px; }

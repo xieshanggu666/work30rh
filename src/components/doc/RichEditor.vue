@@ -1,7 +1,10 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 
-const props = defineProps({ modelValue: { type: String, default: '' } })
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  disabled: { type: Boolean, default: false }
+})
 const emit = defineEmits(['update:modelValue', 'stats'])
 
 const editor = ref(null)
@@ -103,30 +106,30 @@ defineExpose({ emitStats })
 
 <template>
   <div class="rich">
-    <div class="toolbar">
-      <select :value="active.block" class="block-select" @change="formatBlock($event.target.value)">
+    <div class="toolbar" :class="{ disabled }">
+      <select :value="active.block" class="block-select" :disabled="disabled" @change="formatBlock($event.target.value)">
         <option value="p">正文</option>
         <option value="H1">标题 1</option>
         <option value="H2">标题 2</option>
         <option value="H3">标题 3</option>
       </select>
       <span class="sep"></span>
-      <button type="button" class="tb" :class="{ on: active.b }" title="加粗" @click="useCmd('bold')"><b>B</b></button>
-      <button type="button" class="tb" :class="{ on: active.i }" title="斜体" @click="useCmd('italic')"><i>I</i></button>
-      <button type="button" class="tb" :class="{ on: active.ul }" title="无序列表" @click="useCmd('insertUnorderedList')">• 列表</button>
-      <button type="button" class="tb" :class="{ on: active.ol }" title="有序列表" @click="useCmd('insertOrderedList')">1. 列表</button>
-      <button type="button" class="tb" title="代码块" @click="insertCode">&lt;/&gt;</button>
-      <button type="button" class="tb" title="引用" @click="insertQuote">❝</button>
-      <button type="button" class="tb" title="链接" @click="addLink">🔗</button>
-      <button type="button" class="tb" title="插入图片" @click="fileInput.click()">🖼</button>
+      <button type="button" class="tb" :class="{ on: active.b }" :disabled="disabled" title="加粗" @click="useCmd('bold')"><b>B</b></button>
+      <button type="button" class="tb" :class="{ on: active.i }" :disabled="disabled" title="斜体" @click="useCmd('italic')"><i>I</i></button>
+      <button type="button" class="tb" :class="{ on: active.ul }" :disabled="disabled" title="无序列表" @click="useCmd('insertUnorderedList')">• 列表</button>
+      <button type="button" class="tb" :class="{ on: active.ol }" :disabled="disabled" title="有序列表" @click="useCmd('insertOrderedList')">1. 列表</button>
+      <button type="button" class="tb" :disabled="disabled" title="代码块" @click="insertCode">&lt;/&gt;</button>
+      <button type="button" class="tb" :disabled="disabled" title="引用" @click="insertQuote">❝</button>
+      <button type="button" class="tb" :disabled="disabled" title="链接" @click="addLink">🔗</button>
+      <button type="button" class="tb" :disabled="disabled" title="插入图片" @click="fileInput.click()">🖼</button>
       <span class="sep"></span>
       <div class="mode-toggle">
-        <span class="mode" :class="{ on: mode === 'edit' }" @click="mode = 'edit'">编辑</span>
+        <span class="mode" :class="{ on: mode === 'edit' }" @click="!disabled && (mode = 'edit')">编辑</span>
         <span class="mode" :class="{ on: mode === 'preview' }" @click="mode = 'preview'">预览</span>
       </div>
     </div>
 
-    <div v-show="mode === 'edit'" ref="editor" class="editable" contenteditable="true" @input="emitChange"></div>
+    <div v-show="mode === 'edit'" ref="editor" class="editable" :contenteditable="!disabled" :class="{ locked: disabled }" @input="emitChange"></div>
     <div v-show="mode === 'preview'" class="preview-body" v-html="modelValue"></div>
 
     <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile" />
@@ -156,4 +159,7 @@ defineExpose({ emitStats })
 .editable :deep(ul), .editable :deep(ol), .preview-body :deep(ul), .preview-body :deep(ol) { padding-left: 24px; }
 .editable :deep(img) { max-width: 100%; border-radius: 6px; }
 .preview-body { min-height: 320px; padding: 16px 18px; }
+.toolbar.disabled { opacity: 0.6; }
+.tb:disabled, .block-select:disabled { cursor: not-allowed; }
+.editable.locked { background: var(--panel-2); color: var(--text-2); cursor: not-allowed; }
 </style>

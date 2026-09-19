@@ -93,13 +93,79 @@ const seedComments = [
   { id: 'cmt-1', docId: 'doc-1', authorId: 'u-xiaoye', mentionIds: ['u-chen'], content: '@陈思涵 补充一下 lint 规则部分吧？', createdAt: ago(1 * d) },
   { id: 'cmt-2', docId: 'doc-1', authorId: 'u-chen', mentionIds: [], content: '已补充，见代码块。', createdAt: ago(20 * h) },
   { id: 'cmt-3', docId: 'doc-4', authorId: 'u-mochen', mentionIds: ['u-ziwei'], content: '需要补一版交互还原图，麻烦 @王子薇 确认排期。', createdAt: ago(2 * d) },
-  { id: 'cmt-4', docId: 'doc-6', authorId: 'u-xiaoye', mentionIds: ['u-admin'], content: '已按手册完成一次演练，@林致远 请审核。', createdAt: ago(8 * h) }
+  { id: 'cmt-4', docId: 'doc-6', authorId: 'u-xiaoye', mentionIds: ['u-admin'], content: '已按手册完成一次演练，@林致远 请审核。', createdAt: ago(8 * h) },
+  // 评审意见（reviewId 关联评审单，同时联动文档评论区展示）
+  { id: 'cmt-r1-1', docId: 'doc-1', reviewId: 'rev-1', authorId: 'u-xiaoye', mentionIds: [], content: '补充工程规范条目并统一包管理器为 pnpm，请审批。', createdAt: ago(5 * h) },
+  { id: 'cmt-r1-2', docId: 'doc-1', reviewId: 'rev-1', authorId: 'u-chen', mentionIds: [], content: '规范补充得很全，建议再加一条 git commit message 约定。', createdAt: ago(3 * h) },
+  { id: 'cmt-r2-1', docId: 'doc-6', reviewId: 'rev-2', authorId: 'u-chen', mentionIds: [], content: '增补故障复盘要求。', createdAt: ago(2 * d) },
+  { id: 'cmt-r2-2', docId: 'doc-6', reviewId: 'rev-2', authorId: 'u-xiaoye', mentionIds: [], content: '支持，演练后确实需要复盘闭环。', createdAt: ago(30 * h) },
+  { id: 'cmt-r3-1', docId: 'doc-8', reviewId: 'rev-3', authorId: 'u-chen', mentionIds: [], content: '调整密码轮换周期，并收紧可见性。', createdAt: ago(4 * d) }
 ]
 
 const seedShares = [
   { id: 'sh-1', docId: 'doc-1', token: 'share-abc123', permission: 'edit', createdBy: 'u-chen', createdAt: ago(2 * d), expiresAt: null, revokedAt: null },
   { id: 'sh-2', docId: 'doc-6', token: 'share-xyz789', permission: 'view', createdBy: 'u-admin', createdAt: ago(5 * d), expiresAt: null, revokedAt: null }
 ]
+
+// ---- 评审流程演示数据 ----
+// doc-1 正处于评审中（编辑者发起、成员已评论、等待管理员审批），正文锁定保持旧版
+const doc1PendingBody = '<h2>创建你的第一个 Vue 项目</h2><p>推荐使用 <b>Vite</b> 脚手架初始化 Vue 3 工程，并统一使用 pnpm 管理依赖。</p><pre><code>pnpm create vite my-app --template vue</code></pre><p>目录划分为 <i>src/components</i>、<i>src/views</i>、<i>src/stores</i> 等，保持关注点分离。</p><ul><li>组件：按功能拆分子目录，单文件不超过 300 行</li><li>状态：统一交给 Pinia 管理，跨页面状态放 stores</li><li>路由：全部懒加载视图并配置权限 meta</li><li>提交前执行 eslint 与 prettier 检查</li></ul>'
+
+// doc-6 的待审批快照（已通过并回写，仅用于演示留痕）
+const doc6ApprovedBody = '<h2>通用排查步骤</h2><ol><li>查看监控大盘与告警面板</li><li>拉取最近 15 分钟日志，定位错误堆栈</li><li>核对配置版本与灰度开关</li><li>依据 runbook 执行回滚或隔离</li><li>故障恢复后 24h 内输出复盘报告</li></ol><blockquote>切勿在未知情的情况下直接改生产数据。</blockquote><p>若涉及 <b>密钥泄露</b> 请立即轮换并触发安全响应流程。</p>'
+
+const seedReviews = [
+  {
+    id: 'rev-1', docId: 'doc-1', status: 'pending',
+    submittedBy: 'u-xiaoye', submittedAt: ago(5 * h),
+    snapshot: {
+      title: '前端工程初始化与目录规范',
+      body: doc1PendingBody,
+      categoryId: 'c-dev', tagIds: ['t-vue', 't-guide'], visibility: 'public'
+    },
+    baseVersion: 1,
+    decidedBy: null, decidedAt: null, decisionNote: '',
+    timeline: [
+      { action: 'submit', by: 'u-xiaoye', at: ago(5 * h), note: '补充工程规范条目并统一包管理器为 pnpm，请审批。' },
+      { action: 'comment', by: 'u-chen', at: ago(3 * h), note: '规范补充得很全，建议再加一条 git commit message 约定。' }
+    ]
+  },
+  {
+    id: 'rev-2', docId: 'doc-6', status: 'approved',
+    submittedBy: 'u-chen', submittedAt: ago(2 * d),
+    snapshot: {
+      title: '线上故障排查手册',
+      body: doc6ApprovedBody,
+      categoryId: 'c-ops', tagIds: ['t-security', 't-faq'], visibility: 'team'
+    },
+    baseVersion: 1,
+    decidedBy: 'u-admin', decidedAt: ago(6 * h), decisionNote: '复盘环节很有必要，通过。',
+    timeline: [
+      { action: 'submit', by: 'u-chen', at: ago(2 * d), note: '增补故障复盘要求。' },
+      { action: 'comment', by: 'u-xiaoye', at: ago(30 * h), note: '支持，演练后确实需要复盘闭环。' },
+      { action: 'approve', by: 'u-admin', at: ago(6 * h), note: '复盘环节很有必要，通过。' }
+    ]
+  },
+  {
+    id: 'rev-3', docId: 'doc-8', status: 'rejected',
+    submittedBy: 'u-chen', submittedAt: ago(4 * d),
+    snapshot: {
+      title: '企业安全基线要求（草案修订）',
+      body: doc8RejectedBody(),
+      categoryId: 'c-dev', tagIds: ['t-security'], visibility: 'private'
+    },
+    baseVersion: 1,
+    decidedBy: 'u-admin', decidedAt: ago(3 * d), decisionNote: '可见性从团队改为私有范围过大，且强制改密周期需与运维确认，暂不通过。',
+    timeline: [
+      { action: 'submit', by: 'u-chen', at: ago(4 * d), note: '调整密码轮换周期，并收紧可见性。' },
+      { action: 'reject', by: 'u-admin', at: ago(3 * d), note: '可见性从团队改为私有范围过大，且强制改密周期需与运维确认，暂不通过。' }
+    ]
+  }
+]
+
+function doc8RejectedBody() {
+  return '<h2>密码与会话策略</h2><ul><li>强制启用两步验证</li><li>密码每 30 天强制更换一次</li><li>会话 7 天过期，支持强制下线</li><li>敏感操作需二次确认</li></ul>'
+}
 
 const seedFavorites = [
   { id: 'fav-1', userId: 'u-admin', docId: 'doc-1' },
@@ -111,22 +177,69 @@ const seedRatings = [
   { id: 'rt-2', docId: 'doc-2', slug: 'helpful', authorId: 'u-ziwei', value: 1 }
 ]
 
+// 文档种子补评审相关字段：
+// - doc-1 评审中（锁定，正文为发起前旧版）
+// - doc-6 已通过（待审快照已回写，追加 v2 审批通过版本）
+// - doc-8 最近一次被驳回（内容不变，记录驳回结论）
+function withReviewFields(doc) {
+  if (doc.id === 'doc-1') {
+    return {
+      ...doc,
+      publishState: 'in_review',
+      activeReviewId: 'rev-1',
+      versions: [{ version: 1, savedAt: doc.updatedAt, savedBy: doc.ownerId, note: '初始版本' }]
+    }
+  }
+  if (doc.id === 'doc-6') {
+    const approvedAt = ago(6 * h)
+    return {
+      ...doc,
+      body: doc6ApprovedBody,
+      updatedAt: approvedAt,
+      publishState: 'published',
+      activeReviewId: null,
+      lastReview: { reviewId: 'rev-2', status: 'approved', by: 'u-admin', at: approvedAt, note: '复盘环节很有必要，通过。', version: 2 },
+      versions: [
+        { version: 1, savedAt: ago(8 * 24 * h), savedBy: doc.ownerId, note: '初始版本' },
+        { version: 2, savedAt: approvedAt, savedBy: 'u-chen', note: '评审通过后发布：复盘环节很有必要，通过。', reviewStatus: 'approved', reviewId: 'rev-2', decidedBy: 'u-admin' }
+      ]
+    }
+  }
+  if (doc.id === 'doc-8') {
+    const rejectedAt = ago(3 * 24 * h)
+    return {
+      ...doc,
+      publishState: 'published',
+      activeReviewId: null,
+      lastReview: { reviewId: 'rev-3', status: 'rejected', by: 'u-admin', at: rejectedAt, note: '可见性从团队改为私有范围过大，且强制改密周期需与运维确认，暂不通过。' },
+      versions: [{ version: 1, savedAt: doc.updatedAt, savedBy: doc.ownerId, note: '初始版本' }]
+    }
+  }
+  return {
+    ...doc,
+    publishState: 'published',
+    activeReviewId: null,
+    versions: [{ version: 1, savedAt: doc.updatedAt, savedBy: doc.ownerId, note: '初始版本' }]
+  }
+}
+
 async function isSeeded() {
   return (await getMeta('seeded')) === '1'
 }
 
 export async function ensureSeeded() {
   if (await isSeeded()) return
-  await db.transaction('rw', db.users, db.categories, db.tags, db.docs, db.comments, db.shares, db.favorites, db.ratings, async () => {
+  await db.transaction('rw', db.users, db.categories, db.tags, db.docs, db.comments, db.shares, db.favorites, db.ratings, db.reviews, async () => {
     if ((await db.users.count()) > 0) return
     await db.users.bulkAdd(seedUsers)
     await db.categories.bulkAdd(seedCategories)
     await db.tags.bulkAdd(seedTags)
-    await db.docs.bulkAdd(seedDocs.map((d) => ({ ...d, versions: [{ version: 1, savedAt: d.updatedAt, savedBy: d.ownerId, note: '初始版本' }] })))
+    await db.docs.bulkAdd(seedDocs.map(withReviewFields))
     await db.comments.bulkAdd(seedComments)
     await db.shares.bulkAdd(seedShares)
     await db.favorites.bulkAdd(seedFavorites)
     await db.ratings.bulkAdd(seedRatings)
+    await db.reviews.bulkAdd(seedReviews)
   })
   await setMeta('seeded', '1')
 }

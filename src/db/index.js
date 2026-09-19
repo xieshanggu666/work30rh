@@ -15,6 +15,14 @@ export class KnowledgeDB extends Dexie {
       recentViews: 'id, [userId+docId], docId, viewedAt',
       ratings: 'id, [docId+slug]'
     })
+    // v2：知识文档评审流程
+    // - reviews：评审单（编辑者发起 → 成员评论 → 管理员审批并留痕）
+    // - comments 增加 reviewId 索引，区分普通评论与评审意见
+    // docs/versions 上的评审字段无需建索引，直接随记录读写
+    this.version(2).stores({
+      reviews: 'id, docId, status, submittedBy, submittedAt, decidedBy, decidedAt',
+      comments: 'id, docId, authorId, createdAt, reviewId'
+    })
   }
 }
 

@@ -3,14 +3,16 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKbStore } from '@/stores/kb'
 import { useAuthStore } from '@/stores/auth'
+import { useReviewStore } from '@/stores/review'
 import RichEditor from '@/components/doc/RichEditor.vue'
-import { uid } from '@/utils/format'
 import { docVersion, fieldLabels } from '@/utils/version'
+import { ROLE } from '@/utils/permission'
 
 const route = useRoute()
 const router = useRouter()
 const kb = useKbStore()
 const auth = useAuthStore()
+const reviewStore = useReviewStore()
 
 const isEdit = computed(() => route.params.id && route.params.id !== 'new')
 const editingDoc = ref(null)
@@ -25,6 +27,12 @@ const draftKey = 'kb:draft:' + route.params.id
 const backupKey = 'kb:conflict-backup:' + route.params.id
 const savedToast = ref('')
 const saving = ref(false)
+// 提交模式：save 直接保存为新版本（原行为）；review 保存即发起评审，审批通过后才发布
+const submitMode = ref(route.query.submitReview ? 'review' : 'save')
+const reviewNote = ref('')
+// 文档当前是否处于评审中（非管理员进入时只读锁定）
+const lockedByReview = ref(false)
+const activeReview = ref(null)
 // 乐观锁基线：打开编辑器时的版本号与字段快照，保存时据此检测并合并并发修改
 const baseVersion = ref(null)
 const baseDoc = ref(null)
@@ -94,8 +102,23 @@ async function submit(force = false) {
   try {
     const payload = { title: title.value.trim(), categoryId: categoryId.value, tagIds: [...tagIds.value], visibility: visibility.value, body: body.value }
     if (isEdit.value) {
+      // 评审模式：不直接写正文，而是把当前编辑内容作为快照发起评审，通过后才发布
+      if (submitMode.value === 'review') {
+        const res = await reviewStore.submitReview(route.params.id, payload, reviewNote.value.trim(), auth.user)
+        if (res.status === 'ok') {
+          dismissBackup()
+          localStorage.removeItem(draftKey)
+          router.push({ path: '/docs/' + route.params.id, query: { reviewSubmitted: '1' } })
+        } else if (res.status === 'duplicate') {
+          alert('该文档已有流转中的评审单，请等待管理员审批后再发起。')
+        } else if (res.status === 'missing') {
+          alert('文档不存在或已被删除')
+        }
+        return
+      }
       const res = await kb.updateDoc(route.params.id, payload, auth.user, '编辑文档', { baseVersion: baseVersion.value, base: baseDoc.value, force })
       if (!res || res.status === 'missing') { alert('文档不存在或已被删除'); return }
+      if (res.status === 'review-locked') { alert('该文档正在评审中，审批完成前无法保存修改。'); await load(); return }
       if (res.status === 'conflict') {
         // 保留未提交内容：内容留在编辑器中，同时写入备份
         conflict.value = res
@@ -143,6 +166,11 @@ async function load() {
     // 直接读库取最新文档作为编辑基线，避免基于内存缓存的旧快照保存
     const d = await kb.getDocFresh(route.params.id)
     if (d) applyDoc(d)
+    // 评审中：非管理员进入编辑器只读锁定，引导前往详情查看评审
+    await reviewStore.loadAll()
+    const active = reviewStore.pendingReviewOf(route.params.id)
+    activeReview.value = active
+    lockedByReview.value = !!active && auth.user?.role !== ROLE.ADMIN
     // 上次冲突时备份的未提交内容，重新进入编辑器时提示可恢复
     const b = localStorage.getItem(backupKey)
     if (b) { try { backup.value = JSON.parse(b) } catch { localStorage.removeItem(backupKey) } }
@@ -176,6 +204,7 @@ onMounted(load)
 onBeforeUnmount(() => { clearTimeout(saveTimer.value); if (!isEdit.value) saveDraft() })
 
 const canPublish = computed(() => title.value.trim() && categoryId.value)
+const userById = computed(() => Object.fromEntries(auth.users.map((u) => [u.id, u.name])))
 </script>
 
 <template>
@@ -185,8 +214,27 @@ const canPublish = computed(() => title.value.trim() && categoryId.value)
       <span class="mode-badge">{{ isEdit ? '编辑文档' : '新建文档' }}</span>
       <span class="toast">{{ savedToast }}</span>
       <div class="spacer"></div>
-      <button class="btn" @click="manualSave">保存草稿</button>
-      <button class="btn primary" :disabled="!canPublish || saving" @click="submit()">{{ saving ? '保存中…' : (isEdit ? '保存变更' : '发布文档') }}</button>
+      <template v-if="isEdit && !lockedByReview">
+        <div class="mode-seg" title="直接保存立即生效；发起评审则由管理员审批通过后发布">
+          <button :class="{ on: submitMode === 'save' }" @click="submitMode = 'save'">直接保存</button>
+          <button :class="{ on: submitMode === 'review' }" @click="submitMode = 'review'">发起评审</button>
+        </div>
+        <button class="btn" @click="manualSave">保存草稿</button>
+        <button class="btn primary" :disabled="!canPublish || saving" @click="submit()">
+          {{ saving ? '提交中…' : (submitMode === 'review' ? '提交评审' : isEdit ? '保存变更' : '发布文档') }}
+        </button>
+      </template>
+    </div>
+
+    <div v-if="lockedByReview" class="card lock-bar">
+      <div class="lock-head">🔒 文档评审中，暂不可编辑</div>
+      <div class="lock-desc">
+        该文档有一条待管理员审批的评审单（由 {{ activeReview ? userById[activeReview.submittedBy] : '' }} 发起），
+        正文已锁定；审批通过后将发布新版本，驳回则保持当前内容。
+      </div>
+      <div class="lock-actions">
+        <button class="btn sm primary" @click="router.push('/docs/' + route.params.id)">查看评审详情</button>
+      </div>
     </div>
 
     <div v-if="conflict" class="card conflict-bar">
@@ -210,7 +258,7 @@ const canPublish = computed(() => title.value.trim() && categoryId.value)
       </div>
     </div>
 
-    <div class="form card">
+    <div class="form card" :class="{ locked: lockedByReview }">
       <div class="field title-field">
         <input class="big-title" v-model="title" placeholder="文档标题…" maxlength="80" />
       </div>
@@ -239,10 +287,16 @@ const canPublish = computed(() => title.value.trim() && categoryId.value)
           <span class="chip" :class="{ on: visibility === 'private' }" @click="visibility = 'private'">🔒 私有</span>
         </div>
       </div>
+
+      <div v-if="isEdit && submitMode === 'review' && !lockedByReview" class="field">
+        <label class="rv-label">评审说明</label>
+        <textarea v-model="reviewNote" rows="2" placeholder="向管理员说明本次修改要点（会作为首条评审意见留痕，可选）"></textarea>
+        <div class="rv-hint">提交后文档进入「评审中」并锁定当前正文，审批通过后以上内容与可见性才会生效。</div>
+      </div>
     </div>
 
-    <div class="card editor-wrap">
-      <RichEditor v-model="body" @stats="stats = $event" />
+    <div class="card editor-wrap" :class="{ locked: lockedByReview }">
+      <RichEditor v-model="body" :disabled="lockedByReview" @stats="stats = $event" />
     </div>
     <div class="statline">正文 {{ stats.chars }} 字 · {{ stats.words }} 词 · 图片 {{ stats.imgs }} 张</div>
   </div>
@@ -274,4 +328,16 @@ const canPublish = computed(() => title.value.trim() && categoryId.value)
 .btn.danger-solid:hover { background: #d9444b; color: #fff; }
 .backup-bar { padding: 10px 20px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); border-color: var(--primary); background: var(--primary-weak); }
 .backup-bar .c-actions { display: flex; gap: 8px; }
+.mode-seg { display: flex; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.mode-seg button { border: none; background: transparent; padding: 6px 12px; cursor: pointer; color: var(--text-3); font-size: 13px; }
+.mode-seg button.on { background: var(--panel); color: var(--primary); font-weight: 600; box-shadow: inset 0 -2px 0 var(--primary); }
+.rv-label { width: auto !important; font-weight: 600; color: var(--text); }
+.field textarea { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; resize: vertical; outline: none; }
+.field textarea:focus { border-color: var(--primary); }
+.rv-hint { font-size: 12px; color: var(--warn); }
+.lock-bar { padding: 16px 22px; margin-bottom: 14px; border-color: #f59e0b; background: #fffbeb; }
+.lock-head { font-weight: 600; color: #b45309; margin-bottom: 6px; }
+.lock-desc { font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+.lock-actions { display: flex; gap: 8px; }
+.form.locked, .editor-wrap.locked { opacity: 0.7; pointer-events: none; }
 </style>

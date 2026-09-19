@@ -51,6 +51,8 @@ export const useKbStore = defineStore('kb', () => {
       tagIds: payload.tagIds || [],
       body: payload.body || '',
       visibility: payload.visibility || 'public',
+      publishState: 'published',
+      activeReviewId: null,
       ownerId: currentUser?.id || 'u-guest',
       editors: [currentUser?.id || 'u-guest'],
       createdAt: now,
@@ -76,6 +78,11 @@ export const useKbStore = defineStore('kb', () => {
     await db.transaction('rw', db.docs, async () => {
       const existing = await db.docs.get(id)
       if (!existing) { result = { status: 'missing' }; return }
+      // 评审中锁定：仅管理员可直接写入（管理员写入通道为审批，这里兜底防御多窗口/共享链接绕过）
+      if (existing.activeReviewId && savedBy !== 'u-guest') {
+        const isAdmin = currentUser?.role === 'admin'
+        if (!isAdmin) { result = { status: 'review-locked', latest: existing }; return }
+      }
       // 兼容已有文档：缺失的版本记录先补全，再在其后追加，历史版本永不丢弃
       const versions = ensureVersions(existing, now)
       const currentVersion = versions.length
@@ -123,6 +130,9 @@ export const useKbStore = defineStore('kb', () => {
     await db.docs.delete(id)
     await db.comments.where('docId').equals(id).delete()
     await db.shares.where('docId').equals(id).delete()
+    // 评审单随文档一并清理（直接按索引删除，避免与 review store 循环依赖）
+    await db.reviews.where('docId').equals(id).delete()
+    comments.value = comments.value.filter((c) => c.docId !== id)
     await reloadDocs()
   }
 
